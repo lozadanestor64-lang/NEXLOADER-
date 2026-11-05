@@ -17,58 +17,93 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Descargar repositorio
       - name: Descargar codigo fuente
         uses: actions/checkout@v4
 
-      - name: Preparar Java JDK 17
+      # 2. Extraer ZIP del proyecto
+      - name: Extraer proyecto NexLoader
+        run: |
+          ZIP="NEXLoader-7.8.0-etapa1.zip"
+
+          if [ ! -f "$ZIP" ]; then
+            echo "ERROR: No se encontro el ZIP del proyecto"
+            ls -la
+            exit 1
+          fi
+
+          mkdir -p extracted
+          unzip -q "$ZIP" -d extracted
+
+          echo "Contenido extraido:"
+          ls -la extracted
+
+      # 3. Encontrar carpeta Android
+      - name: Detectar proyecto Android
+        shell: bash
+        run: |
+          SETTINGS=$(find extracted -type f \
+            -name settings.gradle -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS=$(find extracted -type f \
+              -name settings.gradle.kts -print -quit)
+          fi
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: No se encontro settings.gradle"
+            find extracted -maxdepth 5 -type f
+            exit 1
+          fi
+
+          ANDROID_DIR=$(dirname "$SETTINGS")
+
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+
+          echo "Proyecto encontrado: $ANDROID_DIR"
+
+          ls -la "$ANDROID_DIR"
+
+      # 4. Instalar Java 17
+      - name: Preparar Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # 5. Preparar Android SDK
       - name: Preparar Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
           accept-android-sdk-licenses: true
 
-      - name: Instalar componentes Android
+      # 6. Instalar componentes Android
+      - name: Instalar Android API 36
         run: |
           sdkmanager --install \
             "platforms;android-36" \
             "build-tools;36.0.0" \
             "platform-tools"
 
+      # 7. Instalar Gradle
       - name: Preparar Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Encontrar proyecto Android
-        shell: bash
+      # 8. Verificar herramientas
+      - name: Verificar entorno
         run: |
-          SETTINGS_FILE=$(find . -type f \
-            -path '*/android/settings.gradle' \
-            -print -quit)
+          java -version
+          gradle --version
+          sdkmanager --version
 
-          if [ -z "$SETTINGS_FILE" ]; then
-            SETTINGS_FILE=$(find . -type f \
-              -path '*/android/settings.gradle.kts' \
-              -print -quit)
-          fi
-
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "ERROR: No se encontro android/settings.gradle"
-            echo "Archivos y carpetas disponibles:"
-            find . -maxdepth 4 -type f | head -100
-            exit 1
-          fi
-
-          ANDROID_DIR=$(dirname "$SETTINGS_FILE")
-
-          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
-
-          echo "Proyecto encontrado: $ANDROID_DIR"
+      # 9. Comprobar archivos
+      - name: Comprobar proyecto
+        run: |
+          test -f "$ANDROID_DIR/settings.gradle" || \
+          test -f "$ANDROID_DIR/settings.gradle.kts"
 
           test -f "$ANDROID_DIR/build.gradle" || \
           test -f "$ANDROID_DIR/build.gradle.kts"
@@ -76,12 +111,7 @@ jobs:
           test -f "$ANDROID_DIR/app/build.gradle" || \
           test -f "$ANDROID_DIR/app/build.gradle.kts"
 
-      - name: Verificar herramientas
-        run: |
-          java -version
-          gradle --version
-          sdkmanager --version
-
+      # 10. Compilar APK
       - name: Compilar NexLoader
         run: |
           gradle -p "$ANDROID_DIR" \
@@ -89,19 +119,21 @@ jobs:
             --stacktrace \
             assembleDebug
 
-      - name: Verificar APK
+      # 11. Comprobar APK
+      - name: Verificar APK generado
         run: |
           APK="$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "ERROR: No se genero el APK"
+            echo "ERROR: APK no generado"
             find "$ANDROID_DIR" -name "*.apk"
             exit 1
           fi
 
           ls -lh "$APK"
 
-      - name: Publicar APK
+      # 12. Publicar APK
+      - name: Descargar APK desde Actions
         uses: actions/upload-artifact@v4
         with:
           name: NexLoader-APK
