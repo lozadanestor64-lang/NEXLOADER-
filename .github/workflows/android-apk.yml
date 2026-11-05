@@ -1,11 +1,13 @@
 
-name: NexLoader Android APK
+name: NexLoader APK Builder
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -13,46 +15,80 @@ permissions:
 
 jobs:
   build:
+    name: Build NexLoader
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar codigo
+      # 1. Descargar el repositorio
+      - name: Descargar codigo fuente
         uses: actions/checkout@v4
 
-      - name: Instalar Java 17
+      # 2. Instalar Java
+      - name: Preparar Java JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # 3. Preparar Android SDK
       - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
-      - name: Instalar SDK 36
+      # 4. Instalar Android API 36
+      - name: Instalar componentes Android
         run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-36"
-          sdkmanager "build-tools;36.0.0"
-          yes | sdkmanager --licenses
+          sdkmanager --install \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "platform-tools"
 
-      - name: Instalar Gradle 8.13
+      # 5. Preparar Gradle 8.13
+      - name: Preparar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Comprobar herramientas
+      # 6. Comprobar herramientas
+      - name: Verificar entorno
         run: |
           java -version
           gradle --version
-          adb version
+          sdkmanager --version
 
-      - name: Compilar NexLoader APK
-        run: gradle -p android --no-daemon assembleDebug
+      # 7. Comprobar estructura
+      - name: Verificar proyecto Android
+        run: |
+          test -f android/settings.gradle || test -f android/settings.gradle.kts
+          test -f android/build.gradle || test -f android/build.gradle.kts
+          test -f android/app/build.gradle || test -f android/app/build.gradle.kts
 
-      - name: Guardar APK
+      # 8. Compilar APK Debug
+      - name: Compilar NexLoader
+        run: |
+          gradle -p android \
+            --no-daemon \
+            --stacktrace \
+            assembleDebug
+
+      # 9. Verificar que exista el APK
+      - name: Comprobar APK generado
+        run: |
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: No se encontro el APK"
+            exit 1
+          fi
+          ls -lh "$APK"
+
+      # 10. Guardar APK para descargar
+      - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
-          name: NexLoader-debug-APK
+          name: NexLoader-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
